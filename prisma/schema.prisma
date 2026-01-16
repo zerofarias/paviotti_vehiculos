@@ -1,0 +1,174 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model maintenanceconfig {
+  id                   Int      @id @default(1)
+  serviceKmInterval    Int?     @default(10000)
+  serviceMonthInterval Int?     @default(6)
+  tireChangeKmInterval Int?     @default(40000)
+  alertOnService       Boolean? @default(true)
+  checkIntervalDays    Int?     @default(7)
+}
+
+model user {
+  id                String     @id
+  name              String
+  email             String     @unique(map: "email")
+  password          String
+  role              user_role? @default(EMPLOYEE)
+  active            Boolean?   @default(true)
+  licenseExpiration DateTime?  @db.DateTime(0)
+  licensePhoto      String?    @db.LongText
+  createdAt         DateTime?  @default(now()) @db.DateTime(0)
+  photo             String?    @db.LongText
+  checklog          checklog[]
+}
+
+model vehicle {
+  id                 String          @id
+  plate              String          @unique(map: "plate")
+  brand              String
+  model              String
+  year               Int
+  color              String
+  currentMileage     Int?            @default(0)
+  lastServiceMileage Int?            @default(0)
+  lastServiceDate    DateTime?       @default(now()) @db.DateTime(0)
+  status             vehicle_status? @default(ACTIVE)
+  damagePoints       String?         @db.LongText
+  fuelLogs           String?         @db.LongText
+  inventory          String?         @db.LongText
+  mainPhotoIndex     Int             @default(0)
+  chassisNumber      String?
+  motorNumber        String?
+  photos             String?         @db.LongText
+  lastCheckDate      DateTime?       @db.DateTime(0)
+  greenCardPhoto     String?         @db.LongText
+  insuranceExpiry    DateTime?       @db.DateTime(0)
+  insurancePolicy    String?         @db.LongText
+  vtvExpiry          DateTime?       @db.DateTime(0)
+  vtvPhoto           String?         @db.LongText
+  lastCheckUser      String?
+
+  checklog           checklog[]
+  tire               tire[]
+}
+
+model damage_history {
+  id           String    @id @default(uuid())
+  vehicleId    String    @db.VarChar(255)
+  x            Float
+  y            Float
+  type         String
+  description  String?
+  severity     String?
+  reportedDate DateTime? @default(now()) @db.DateTime(0)
+  repairedDate DateTime? @default(now()) @db.DateTime(0)
+  repairedBy   String?
+  repairCost   Float?
+  repairNotes  String? @db.Text
+
+  @@index([vehicleId], map: "vehicleId")
+}
+
+model checklog {
+  id                     String                    @id
+  vehicleId              String
+  userId                 String
+  timestamp              DateTime?                 @default(now()) @db.DateTime(0)
+  mileage                Int
+  tirePressurePsi        Int?
+  oilLevel               checklog_oilLevel?        @default(NORMAL)
+  brakeFluidLevel        checklog_brakeFluidLevel? @default(NORMAL)
+  wiperFluidLevel        checklog_wiperFluidLevel? @default(NORMAL)
+  coolantLevel           checklog_coolantLevel?    @default(NORMAL)
+  notes                  String?                   @db.Text
+  fireExtinguisherExpiry String?
+  fireExtinguisherOk     Boolean?                  @default(true)
+  fuelCost               Float?
+  fuelLiters             Float?
+  hornOk                 Boolean?                  @default(true)
+  itemsChecked           String?                   @db.LongText
+  lightsOk               Boolean?                  @default(true)
+  serviceCost            Float?
+  spareTireOk            Boolean?                  @default(true)
+  type                   String?                   @default("WEEKLY_SAFETY")
+  userName               String?
+  workshopName           String?
+  cleanlinessOk          Boolean?                  @default(true)
+  uniformOk              Boolean?                  @default(true)
+  vehicle                vehicle                   @relation(fields: [vehicleId], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "checklog_ibfk_1")
+  user                   user                      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "checklog_ibfk_2")
+
+  @@index([userId], map: "userId")
+  @@index([vehicleId], map: "vehicleId")
+}
+
+enum user_role {
+  ADMIN
+  EMPLOYEE
+}
+
+enum checklog_oilLevel {
+  NORMAL
+  LOW
+}
+
+enum checklog_brakeFluidLevel {
+  NORMAL
+  LOW
+}
+
+enum checklog_wiperFluidLevel {
+  NORMAL
+  LOW
+}
+
+enum checklog_coolantLevel {
+  NORMAL
+  LOW
+}
+
+enum vehicle_status {
+  ACTIVE
+  MAINTENANCE
+  OUT_OF_SERVICE
+}
+
+model vehicle_note {
+  id          String    @id @default(uuid())
+  vehicleId   String    @db.VarChar(255)
+  title       String
+  description String?   @db.Text
+  date        DateTime  @default(now()) @db.DateTime(0)
+  type        String    @default("GENERAL") // GENERAL, CLEANING, ACCESSORY, FINE, OTHER
+  cost        Float?    @default(0)
+  attachment  String?   @db.LongText // Base64 or URL
+  createdBy   String?
+
+  @@index([vehicleId], map: "vehicleId_note_idx")
+}
+
+model tire {
+  id             String   @id @default(uuid())
+  vehicleId      String   @db.VarChar(255)
+  position       String   // FL (Front Left), FR, RL, RR, SPARE
+  brand          String
+  model          String?
+  size           String?  // e.g. 205/55 R16
+  installDate    DateTime @default(now()) @db.DateTime(0)
+  installMileage Int      // Mileage at installation
+  estimatedLife  Int      @default(50000)
+  status         String   @default("GOOD") // GOOD, WARNING, CRITICAL
+  currentTread   Float?   // mm depth (optional)
+  
+  vehicle        vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId], map: "vehicleId_tire_idx")
+}
