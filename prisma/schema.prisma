@@ -8,12 +8,22 @@ datasource db {
 }
 
 model maintenanceconfig {
-  id                   Int      @id @default(1)
-  serviceKmInterval    Int?     @default(10000)
-  serviceMonthInterval Int?     @default(6)
-  tireChangeKmInterval Int?     @default(40000)
-  alertOnService       Boolean? @default(true)
-  checkIntervalDays    Int?     @default(7)
+  id                      Int      @id @default(1)
+  serviceKmInterval       Int?     @default(10000)
+  serviceMonthInterval    Int?     @default(6)
+  tireChangeKmInterval    Int?     @default(40000)
+  checkIntervalDays       Int?     @default(7)
+  
+  // Toggle de Alertas
+  enableEmailAlerts       Boolean? @default(false)
+  alertOnService          Boolean? @default(true)
+  alertOnLicense          Boolean? @default(true)
+  alertOnFireExtinguisher Boolean? @default(true)
+  
+  // Destinatarios y Configuración
+  notificationEmails      String?  @db.Text 
+  smtpServer              String?
+  smtpUser                String?
 }
 
 model user {
@@ -171,4 +181,21 @@ model tire {
   vehicle        vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
 
   @@index([vehicleId], map: "vehicleId_tire_idx")
+}
+
+model notification_log {
+  id          String    @id @default(uuid())
+  type        String    // 'vtv_expiring', 'license_expiring', 'service_due', etc.
+  entityType  String    // 'vehicle', 'user'
+  entityId    String    // ID del vehículo o usuario relacionado
+  message     String    @db.Text
+  sentAt      DateTime  @default(now()) @db.DateTime(0)
+  sentTo      String?   // URL del sistema externo
+  status      String    // 'pending', 'sent', 'failed'
+  response    String?   @db.Text
+  retryCount  Int       @default(0)
+  
+  @@index([status], map: "status_idx")
+  @@index([sentAt], map: "sentAt_idx")
+  @@index([entityType, entityId], map: "entity_idx")
 }

@@ -1,6 +1,7 @@
 
+
 import React, { useState, useMemo, useEffect } from 'react';
-import { UserRole } from './types';
+import { UserRole, CheckType } from './types';
 import type { User, Vehicle, CheckLog, MaintenanceConfig } from './types';
 import { ICONS } from './constants';
 import Dashboard from './pages/Dashboard';
@@ -11,15 +12,28 @@ import Settings from './pages/Settings';
 import FuelAnalytics from './pages/FuelAnalytics';
 import Reports from './pages/Reports';
 import UsersPage from './pages/Users';
+import Login from './pages/Login';
+import { ToastContainer } from './components/Toast';
+import { useToast } from './hooks/useToast';
+import { useAuth } from './contexts/AuthContext';
+import { apiGet, apiPost, apiPut } from './utils/api';
 
 const App: React.FC = () => {
-  const [users, setUsers] = useState<User[]>([]);
+  // ==========================================
+  // TODOS LOS HOOKS AL INICIO (Rules of Hooks)
+  // ==========================================
 
-  const [currentUser, setCurrentUser] = useState<User>({ id: 'temp', name: 'Cargando...', role: UserRole.EMPLOYEE, email: '', active: true });
+  // Auth
+  const { user: authUser, isAuthenticated, isLoading: authLoading, logout, accessToken } = useAuth();
+
+  // Toast notifications
+  const { toasts, removeToast, showSuccess, showError, showWarning } = useToast();
+
+  // State
+  const [users, setUsers] = useState<User[]>([]);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentTab, setCurrentTab] = useState<'dashboard' | 'vehicles' | 'fuel' | 'reports' | 'users' | 'settings'>('dashboard');
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
-
-  // Initial state empty, fetched from API
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [logs, setLogs] = useState<CheckLog[]>([]);
 
@@ -42,10 +56,10 @@ const App: React.FC = () => {
     const fetchData = async () => {
       try {
         const [vRes, lRes, uRes, cRes] = await Promise.all([
-          fetch('/api/vehicles'),
-          fetch('/api/logs'),
-          fetch('/api/users'),
-          fetch('/api/config')
+          apiGet('/api/vehicles'),
+          apiGet('/api/logs'),
+          apiGet('/api/users'),
+          apiGet('/api/config')
         ]);
         if (vRes.ok) setVehicles(await vRes.json());
         if (lRes.ok) setLogs(await lRes.json());
@@ -57,48 +71,86 @@ const App: React.FC = () => {
         if (uRes.ok) {
           const usersData = await uRes.json();
           setUsers(usersData);
-          // Update current user if exists in new list or default to first
-          if (usersData.length > 0 && !usersData.find((u: User) => u.id === currentUser.id)) {
-            setCurrentUser(usersData[0]);
+          // Set current user from auth
+          if (authUser) {
+            setCurrentUser(authUser);
           }
         }
       } catch (error) {
         console.error("Failed to load data", error);
       }
     };
-    fetchData();
-  }, []);
+
+    if (isAuthenticated) {
+      fetchData();
+    }
+  }, [isAuthenticated, authUser]);
 
   const vehiclesNeedingService = useMemo(() => {
     return vehicles.filter(v => {
       const kmSinceService = v.currentMileage - v.lastServiceMileage;
-      const dateLastService = new Date(v.lastServiceDate);
-      const monthsSinceService = (new Date().getTime() - dateLastService.getTime()) / (1000 * 60 * 60 * 24 * 30.44);
+      const dateLast = v.lastServiceDate ? new Date(v.lastServiceDate) : new Date();
+      const monthsSinceService = (new Date().getTime() - dateLast.getTime()) / (1000 * 60 * 60 * 24 * 30.44);
       return kmSinceService >= config.serviceKmInterval || monthsSinceService >= config.serviceMonthInterval;
     }).length;
   }, [vehicles, config]);
 
+  // ==========================================
+  // CONDITIONAL RETURNS DESPUÉS DE LOS HOOKS
+  // ==========================================
+
+  // Si está cargando la autenticación, mostrar loading
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-white font-bold">Cargando...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Si no está autenticado, mostrar login
+  if (!isAuthenticated) {
+    return <Login />;
+  }
+
+  // Si no hay currentUser, loading
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-white font-bold">Cargando datos...</p>
+        </div>
+      </div>
+    );
+  }
+
   const handleAddLog = async (log: Omit<CheckLog, 'id'>) => {
     try {
-      const response = await fetch('/api/logs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(log)
-      });
+      const response = await apiPost('/api/logs', log);
 
       if (response.ok) {
         const savedLog = await response.json();
         setLogs(prev => [savedLog, ...prev]);
+
+        // Show success toast
+        const logTypeLabel = log.type === CheckType.WEEKLY_SAFETY ? 'Control' : log.type === CheckType.SERVICE ? 'Service' : 'Combustible';
+        showSuccess(`${logTypeLabel} registrado exitosamente`);
 
         // Also update Vehicle locally to reflect changes immediately (e.g. mileage)
         // Ideally we should refetch vehicle or return updated vehicle from API, 
         // but for now we trust the logic in VehicleDetail passed to handleUpdateVehicle
         // Wait, VehicleDetail calls handleAddLog AND handleUpdateVehicle.
         // So we don't need to update vehicle here, handleUpdateVehicle will do it.
+      } else {
+        showError('Error al guardar el registro');
       }
     } catch (error) {
       console.error("Error creating log", error);
-      alert("Error al guardar registro");
+      showError('Error de conexión al guardar');
     }
   };
 
@@ -140,18 +192,18 @@ const App: React.FC = () => {
 
   const handleUpdateVehicle = async (updatedVehicle: Vehicle) => {
     try {
-      const response = await fetch(`/api/vehicles/${updatedVehicle.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedVehicle)
-      });
+      const response = await apiPut(`/api/vehicles/${updatedVehicle.id}`, updatedVehicle);
+
       if (response.ok) {
         const saved = await response.json();
         setVehicles(prev => prev.map(v => v.id === saved.id ? saved : v));
+        showSuccess('Vehículo actualizado correctamente');
+      } else {
+        showError('Error al actualizar el vehículo');
       }
     } catch (error) {
       console.error("Error updating vehicle", error);
-      alert("Error al actualizar unidad");
+      showError('Error de conexión al actualizar');
     }
   };
 
@@ -188,10 +240,12 @@ const App: React.FC = () => {
             <span className="font-bold uppercase text-xs tracking-widest">Flota</span>
           </button>
 
-          <button onClick={() => { setCurrentTab('fuel'); setSelectedVehicleId(null); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all ${currentTab === 'fuel' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/30' : 'hover:bg-slate-800 text-slate-400'}`}>
-            <ICONS.Fuel className="w-5 h-5" />
-            <span className="font-bold uppercase text-xs tracking-widest">Combustible</span>
-          </button>
+          {isAdmin && (
+            <button onClick={() => { setCurrentTab('fuel'); setSelectedVehicleId(null); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all ${currentTab === 'fuel' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/30' : 'hover:bg-slate-800 text-slate-400'}`}>
+              <ICONS.Fuel className="w-5 h-5" />
+              <span className="font-bold uppercase text-xs tracking-widest">Combustible</span>
+            </button>
+          )}
 
           {isAdmin && (
             <>
@@ -225,6 +279,21 @@ const App: React.FC = () => {
               {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
             </select>
           </div>
+
+          {/* Logout Button */}
+          <button
+            onClick={() => {
+              if (confirm('¿Estás seguro que deseas cerrar sesión?')) {
+                logout();
+              }
+            }}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl transition-all font-bold uppercase text-xs shadow-lg"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+            <span>Cerrar Sesión</span>
+          </button>
         </div>
       </aside>
 
@@ -272,7 +341,7 @@ const App: React.FC = () => {
                 isAdmin={isAdmin}
               />
             )}
-            {currentTab === 'fuel' && (
+            {currentTab === 'fuel' && isAdmin && (
               <FuelAnalytics vehicles={vehicles} logs={logs} />
             )}
             {isAdmin && (
@@ -294,6 +363,9 @@ const App: React.FC = () => {
         {isAdmin && <NavItem tab="users" icon={ICONS.Users} label="Staff" />}
         {isAdmin && <NavItem tab="settings" icon={ICONS.Settings} label="Ajustes" />}
       </nav>
+
+      {/* Toast Notifications */}
+      <ToastContainer toasts={toasts} onClose={removeToast} />
     </div>
   );
 };

@@ -1,20 +1,138 @@
 
+
+
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import { PrismaClient } from '@prisma/client';
+import authRoutes from './routes/auth';
 
 const app = express();
 const prisma = new PrismaClient();
-const PORT = 3001;
+const PORT = parseInt(process.env.PORT || '3001');
 
-app.use(cors());
+// ==============================================
+// 🔒 SEGURIDAD - Helmet (Headers de seguridad)
+// ==============================================
+app.use(helmet());
+
+// ==============================================
+// 🔒 SEGURIDAD - CORS Específico
+// ==============================================
+const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    process.env.FRONTEND_URL || ''
+].filter(Boolean);
+
+app.use(cors({
+    origin: (origin, callback) => {
+        // Permitir requests sin origin (como Postman) o desde la misma red local
+        if (!origin ||
+            allowedOrigins.includes(origin) ||
+            origin.startsWith('http://192.168.') ||
+            origin.startsWith('http://10.') ||
+            origin.startsWith('http://172.')) {
+            callback(null, true);
+        } else {
+            console.warn(`Blocked by CORS: ${origin}`);
+            callback(null, true); // En desarrollo permitimos todo, pero logueamos el warning
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}));
+
 app.use(express.json({ limit: '50mb' })); // Increased limit for base64 images
 
-// Middleware to log requests
+// ==============================================
+// 🔒 SEGURIDAD - Rate Limiting
+// ==============================================
+
+// Rate limiter estricto para autenticación (prevenir fuerza bruta)
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutos
+    max: 5, // 5 intentos por ventana
+    message: { error: 'Demasiados intentos de inicio de sesión. Intenta nuevamente en 15 minutos.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// Rate limiter general para la API
+const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutos
+    max: 100, // 100 requests por ventana
+    message: { error: 'Demasiadas solicitudes. Intenta nuevamente más tarde.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// Aplicar rate limiting a rutas de autenticación
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+
+// Aplicar rate limiting general a todas las rutas API
+app.use('/api', apiLimiter);
+
+// ==============================================
+// LOGGING - Mejorado con timestamp
+// ==============================================
 app.use((req, res, next) => {
-    console.log(`${req.method} ${req.path}`);
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] ${req.method} ${req.path} - IP: ${req.ip}`);
     next();
 });
+
+// ==============================================
+// 📚 DOCUMENTACIÓN SWAGGER
+// ==============================================
+
+import { swaggerUi, swaggerSpec } from './swagger';
+
+// Swagger UI
+app.use('/api-docs', swaggerUi.serve);
+app.get('/api-docs', swaggerUi.setup(swaggerSpec, {
+    customCss: `
+    .swagger-ui .topbar { display: none; }
+    .swagger-ui .info .title { color: #1e293b; font-size: 2.5rem; }
+    .swagger-ui .scheme-container { 
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 20px;
+      border-radius: 10px;
+    }
+  `,
+    customSiteTitle: 'Paviotti Fleet API',
+    customfavIcon: '/favicon.ico',
+    swaggerOptions: {
+        persistAuthorization: true,
+        displayRequestDuration: true,
+        filter: true,
+        syntaxHighlight: {
+            activate: true,
+            theme: 'monokai'
+        }
+    }
+}));
+
+// Endpoint para obtener el spec en JSON
+app.get('/api-docs.json', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(swaggerSpec);
+});
+
+// ==============================================
+// RUTAS
+// ==============================================
+
+import notificationRoutes from './routes/notifications';
+
+// Authentication routes
+app.use('/api/auth', authRoutes);
+
+// Notifications routes
+app.use('/api/notifications', notificationRoutes);
 
 // --- USERS API ---
 
@@ -32,12 +150,20 @@ app.get('/api/users', async (req, res) => {
 // POST /api/users - Create new user
 app.post('/api/users', async (req, res) => {
     try {
+        // Hash password antes de guardar
+        const hashedPassword = req.body.password
+            ? await import('./utils/auth').then(m => m.hashPassword(req.body.password))
+            : '';
+
+        // Generar ID si no viene del frontend
+        const userId = req.body.id || crypto.randomUUID();
+
         const newUser = await prisma.user.create({
             data: {
-                id: req.body.id, // ID is generated on client or we could let Prisma doing it (cuid/uuid)
+                id: userId,
                 name: req.body.name,
                 email: req.body.email,
-                password: req.body.password,
+                password: hashedPassword,
                 role: req.body.role,
                 active: req.body.active ?? true,
                 licenseExpiration: req.body.licenseExpiration ? new Date(req.body.licenseExpiration) : null,
@@ -56,18 +182,29 @@ app.post('/api/users', async (req, res) => {
 app.put('/api/users/:id', async (req, res) => {
     const { id } = req.params;
     try {
+        // Hash password solo si se está actualizando
+        const hashedPassword = req.body.password
+            ? await import('./utils/auth').then(m => m.hashPassword(req.body.password))
+            : undefined;
+
+        const updateData: any = {
+            name: req.body.name,
+            email: req.body.email,
+            role: req.body.role,
+            active: req.body.active,
+            licenseExpiration: req.body.licenseExpiration ? new Date(req.body.licenseExpiration) : null,
+            photo: req.body.photo,
+            licensePhoto: req.body.licensePhoto,
+        };
+
+        // Solo actualizar password si se proporcionó
+        if (hashedPassword) {
+            updateData.password = hashedPassword;
+        }
+
         const updatedUser = await prisma.user.update({
             where: { id },
-            data: {
-                name: req.body.name,
-                email: req.body.email,
-                password: req.body.password,
-                role: req.body.role,
-                active: req.body.active,
-                licenseExpiration: req.body.licenseExpiration ? new Date(req.body.licenseExpiration) : null,
-                photo: req.body.photo,
-                licensePhoto: req.body.licensePhoto,
-            },
+            data: updateData,
         });
         res.json(updatedUser);
     } catch (error) {
@@ -362,7 +499,17 @@ app.post('/api/logs', async (req, res) => {
 app.get('/api/config', async (req, res) => {
     try {
         const config = await prisma.maintenanceconfig.findFirst() || await prisma.maintenanceconfig.create({ data: {} });
-        res.json(config);
+
+        // Mezclar con variables de entorno si la DB está vacía para estos campos (retrocompatibilidad)
+        const responseConfirm = {
+            ...config,
+            notificationEmails: config.notificationEmails || process.env.NOTIFICATION_EMAIL || '',
+            smtpServer: config.smtpServer || process.env.SMTP_HOST || '',
+            smtpUser: config.smtpUser || process.env.SMTP_USER || '',
+            // No devolvemos password de SMTP
+        };
+
+        res.json(responseConfirm);
     } catch (error) {
         console.error('Error fetching config:', error);
         res.status(500).json({ error: 'Failed to fetch config' });
@@ -372,15 +519,26 @@ app.get('/api/config', async (req, res) => {
 app.put('/api/config', async (req, res) => {
     try {
         const { id, ...data } = req.body;
-        // Ensure only allowed fields are updated
+
+        // Actualizar todos los campos de configuración
         const updatedConfig = await prisma.maintenanceconfig.update({
-            where: { id: 1 }, // Assuming single config record
+            where: { id: 1 },
             data: {
                 serviceKmInterval: data.serviceKmInterval,
                 serviceMonthInterval: data.serviceMonthInterval,
                 tireChangeKmInterval: data.tireChangeKmInterval,
                 checkIntervalDays: data.checkIntervalDays,
-                alertOnService: data.alertOnService
+
+                // Nuevos campos de alertas
+                enableEmailAlerts: data.enableEmailAlerts,
+                alertOnService: data.alertOnService,
+                alertOnLicense: data.alertOnLicense,
+                alertOnFireExtinguisher: data.alertOnFireExtinguisher,
+
+                // Configuración de correo
+                notificationEmails: data.notificationEmails,
+                smtpServer: data.smtpServer,
+                smtpUser: data.smtpUser
             }
         });
         res.json(updatedConfig);
@@ -538,6 +696,24 @@ app.put('/api/tires/:tireId', async (req, res) => {
     }
 });
 
+// ==============================================
+// 🕐 CRON JOBS - Alertas Automáticas
+// ==============================================
+
+import { startAlertCronJobs } from './jobs/notificationCron';
+
+// Iniciar cron jobs
+startAlertCronJobs();
+
+// ==============================================
+// 🚀 SERVIDOR
+// ==============================================
+
 app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`🚀 Servidor iniciado correctamente`);
+    console.log(`📍 URL: http://localhost:${PORT}`);
+    console.log(`📚 API Docs: http://localhost:${PORT}/api-docs`);
+    console.log(`⏰ Alertas programadas: 8:00 AM y 10:00 AM`);
+    console.log(`${'='.repeat(60)}\n`);
 });

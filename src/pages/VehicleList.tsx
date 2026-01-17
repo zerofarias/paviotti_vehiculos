@@ -12,7 +12,6 @@ interface VehicleListProps {
 }
 
 const VehicleList: React.FC<VehicleListProps> = ({ vehicles, onSelectVehicle, config, onAddVehicle, isAdmin }) => {
-  const [filter, setFilter] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showQRModal, setShowQRModal] = useState<Vehicle | null>(null);
 
@@ -32,12 +31,6 @@ const VehicleList: React.FC<VehicleListProps> = ({ vehicles, onSelectVehicle, co
     fuelLogs: [] as FuelLog[],
     inventory: [] as InventoryItem[]
   });
-
-  const filteredVehicles = vehicles.filter(v =>
-    v.plate.toLowerCase().includes(filter.toLowerCase()) ||
-    v.brand.toLowerCase().includes(filter.toLowerCase()) ||
-    v.model.toLowerCase().includes(filter.toLowerCase())
-  );
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -74,20 +67,108 @@ const VehicleList: React.FC<VehicleListProps> = ({ vehicles, onSelectVehicle, co
     });
   };
 
+  // Búsqueda mejorada con debounce
+  const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  // Debounce del término de búsqueda
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+    }, 300); // 300ms de delay
+
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Filtrado mejorado: por patente, marca, modelo O año
+  const filteredVehicles = vehicles.filter(v => {
+    const search = debouncedSearch.toLowerCase().trim();
+
+    if (!search) return true; // Si no hay búsqueda, mostrar todos
+
+    return (
+      v.plate.toLowerCase().includes(search) ||
+      v.brand.toLowerCase().includes(search) ||
+      v.model.toLowerCase().includes(search) ||
+      v.year.toString().includes(search)
+    );
+  });
+
   return (
     <div className="w-full space-y-6 pb-20">
-      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Flota Vehicular</h2>
-          <p className="text-slate-500 font-medium">Gestión integral de unidades funerarias.</p>
+      <header className="flex flex-col gap-6">
+        {/* Título y botón de nueva unidad */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-3xl font-black text-slate-900 tracking-tight">Flota Vehicular</h2>
+            <p className="text-slate-500 font-medium">Gestión integral de unidades funerarias.</p>
+          </div>
+          <div className="flex gap-2">
+            {isAdmin && (
+              <button onClick={() => setShowAddModal(true)} className="bg-slate-900 text-white px-6 py-4 rounded-2xl font-black text-xs hover:bg-slate-800 transition-all flex items-center gap-2 shadow-xl shadow-slate-200 uppercase tracking-widest">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 6v12m6-6H6" /></svg>
+                Nueva Unidad
+              </button>
+            )}
+          </div>
         </div>
-        <div className="flex gap-2">
-          {isAdmin && (
-            <button onClick={() => setShowAddModal(true)} className="bg-slate-900 text-white px-6 py-4 rounded-2xl font-black text-xs hover:bg-slate-800 transition-all flex items-center gap-2 shadow-xl shadow-slate-200 uppercase tracking-widest">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 6v12m6-6H6" /></svg>
-              Nueva Unidad
-            </button>
-          )}
+
+        {/* Buscador Premium */}
+        <div className="relative">
+          <div className="relative group">
+            {/* Icono de búsqueda */}
+            <div className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-colors">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+
+            {/* Input de búsqueda */}
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Buscar por patente, marca, modelo o año..."
+              className="w-full pl-14 pr-24 py-4 bg-white border-2 border-slate-200 rounded-2xl font-bold text-slate-900 placeholder:text-slate-400 placeholder:font-medium outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50 transition-all"
+            />
+
+            {/* Botón para limpiar */}
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-xs transition-all flex items-center gap-1"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Limpiar
+              </button>
+            )}
+          </div>
+
+          {/* Indicador de resultados */}
+          <div className="mt-3 flex items-center justify-between text-sm">
+            <p className="text-slate-600 font-medium">
+              {debouncedSearch ? (
+                <>
+                  <span className="font-black text-blue-600">{filteredVehicles.length}</span>
+                  {' '}resultado{filteredVehicles.length !== 1 ? 's' : ''} encontrado{filteredVehicles.length !== 1 ? 's' : ''}
+                  {filteredVehicles.length === 0 && ' 😕'}
+                </>
+              ) : (
+                <>
+                  <span className="font-black text-slate-900">{vehicles.length}</span>
+                  {' '}unidad{vehicles.length !== 1 ? 'es' : ''} en total
+                </>
+              )}
+            </p>
+
+            {debouncedSearch && filteredVehicles.length > 0 && (
+              <p className="text-xs text-slate-400 font-medium">
+                Buscando: "<span className="text-slate-600 font-bold">{debouncedSearch}</span>"
+              </p>
+            )}
+          </div>
         </div>
       </header>
 

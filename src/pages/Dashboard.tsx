@@ -3,6 +3,7 @@ import React, { useMemo } from 'react';
 import { CheckType } from '../types';
 import type { Vehicle, CheckLog, FleetStats, User, MaintenanceConfig } from '../types';
 import { ICONS } from '../constants';
+import AlertsDashboard from '../components/AlertsDashboard';
 
 interface DashboardProps {
   vehicles: Vehicle[];
@@ -105,6 +106,9 @@ const Dashboard: React.FC<DashboardProps> = ({ vehicles, logs, stats, onSelectVe
         <h2 className="text-4xl font-black text-slate-900 tracking-tight">Dashboard General</h2>
         <p className="text-slate-500 font-medium uppercase text-[10px] tracking-[0.2em] mt-1">Control de Flota • Paviotti</p>
       </header>
+
+      {/* Alertas Críticas y Vencimientos */}
+      <AlertsDashboard vehicles={vehicles} users={users} config={config} />
 
       {/* Métricas Rápidas */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">

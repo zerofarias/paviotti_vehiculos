@@ -22,7 +22,7 @@ export interface MaintenanceConfig {
   serviceMonthInterval: number;
   tireChangeKmInterval: number;
   checkIntervalDays: number;
-  notificationEmail: string;
+  notificationEmails: string;
   enableEmailAlerts: boolean;
   smtpServer?: string;
   smtpUser?: string;

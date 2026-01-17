@@ -112,14 +112,15 @@ const Settings: React.FC<SettingsProps> = ({ config, setConfig, user }) => {
             {config.enableEmailAlerts && (
               <div className="p-6 bg-blue-50 rounded-3xl border border-blue-100 space-y-4 animate-in slide-in-from-top">
                 <div>
-                  <label className="block text-[9px] font-black text-blue-600 uppercase mb-1">Email Destinatario (Alertas)</label>
+                  <label className="block text-[9px] font-black text-blue-600 uppercase mb-1">Emails Destinatarios (Separados por coma)</label>
                   <input
-                    type="email"
-                    value={config.notificationEmail}
-                    onChange={(e) => handleUpdate('notificationEmail', e.target.value)}
-                    placeholder="ejemplo@paviotti.com"
+                    type="text"
+                    value={config.notificationEmails || ''}
+                    onChange={(e) => handleUpdate('notificationEmails', e.target.value)}
+                    placeholder="jefe@paviotti.com, admin@paviotti.com"
                     className="w-full p-3 bg-white border border-blue-200 rounded-xl text-xs font-bold outline-none"
                   />
+                  <p className="text-[8px] text-blue-400 font-bold mt-1 pl-1">Estos correos recibirán las alertas automáticas.</p>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>

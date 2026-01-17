@@ -1,8 +1,9 @@
 
 import React, { useState, useRef } from 'react';
 import { CheckType, UserRole } from '../types';
-import type { Vehicle, CheckLog, MaintenanceConfig, User, FluidLevel, DamagePoint, FuelLog, VehicleNote, Tire } from '../types';
+import type { Vehicle, CheckLog, MaintenanceConfig, User, FluidLevel, DamagePoint, FuelLog, VehicleNote, Tire, InventoryItem } from '../types';
 import { ICONS } from '../constants';
+import { exportVehicleInspectionToPDF, exportVehicleHistoryToPDF } from '../utils/pdfExport';
 import TireManagement from '../components/TireManagement';
 
 interface VehicleDetailProps {
@@ -51,6 +52,9 @@ const VehicleDetail: React.FC<VehicleDetailProps> = ({
   const [selectedDamageId, setSelectedDamageId] = useState<string | null>(null);
   const [repairCostInput, setRepairCostInput] = useState('');
   const [repairNotesInput, setRepairNotesInput] = useState('');
+
+  // Inventory State
+  const [newItemName, setNewItemName] = useState('');
 
   const handleSubmitLog = (e: React.FormEvent) => {
     e.preventDefault();
@@ -196,6 +200,35 @@ const VehicleDetail: React.FC<VehicleDetailProps> = ({
     onUpdateVehicle({ ...vehicle, inventory: updatedInv });
   };
 
+  const handleAddInventoryItem = () => {
+    if (!newItemName.trim()) return;
+
+    const newItem: InventoryItem = {
+      id: crypto.randomUUID(),
+      name: newItemName.trim(),
+      present: true,
+      condition: 'good'
+    };
+
+    // Asegurarse de que inventory existe
+    const currentInventory = vehicle.inventory || [];
+
+    onUpdateVehicle({
+      ...vehicle,
+      inventory: [...currentInventory, newItem]
+    });
+
+    setNewItemName('');
+  };
+
+  const handleDeleteInventoryItem = (itemId: string) => {
+    const currentInventory = vehicle.inventory || [];
+    onUpdateVehicle({
+      ...vehicle,
+      inventory: currentInventory.filter(i => i.id !== itemId)
+    });
+  };
+
   const FluidControl = ({ label, icon, value, onChange }: { label: string, icon: any, value: FluidLevel | null, onChange: (v: FluidLevel) => void }) => (
     <div className={`p-4 rounded-[1.5rem] border transition-all duration-300 relative overflow-hidden group hover:shadow-lg ${value === 'low' ? 'bg-red-50 border-red-200' : value === 'normal' ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-100'}`}>
       {/* Background Gradient Effect */}
@@ -252,27 +285,28 @@ const VehicleDetail: React.FC<VehicleDetailProps> = ({
         </button>
       </div>
 
-      {/* Action Buttons - Mobile First (Moved to Top) */}
-      <div className="grid grid-cols-3 gap-2 md:hidden">
+      {/* Action Buttons - Responsive for Mobile AND Desktop */}
+      <div className="grid grid-cols-3 md:flex md:flex-row gap-2 md:gap-3">
         <button
           onClick={() => { setLogType(CheckType.WEEKLY_SAFETY); setShowLogForm(true); }}
-          className="px-3 py-4 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg active:scale-95 transition-transform flex flex-col items-center justify-center gap-1"
+          className="px-3 py-4 md:px-6 md:py-4 bg-blue-600 text-white rounded-xl md:rounded-2xl font-black text-[10px] md:text-xs uppercase shadow-lg hover:shadow-xl active:scale-95 transition-all flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2"
         >
-          <span className="text-lg">✓</span>
+          <span className="text-lg md:text-base">✓</span>
           <span>Control</span>
         </button>
         <button
           onClick={() => { setLogType(CheckType.SERVICE); setShowLogForm(true); }}
-          className="px-3 py-4 bg-violet-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg active:scale-95 transition-transform flex flex-col items-center justify-center gap-1"
+          className="px-3 py-4 md:px-6 md:py-4 bg-violet-600 text-white rounded-xl md:rounded-2xl font-black text-[10px] md:text-xs uppercase shadow-lg hover:shadow-xl active:scale-95 transition-all flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2"
         >
-          <span className="text-lg">🛠️</span>
-          <span>Taller</span>
+          <span className="text-lg md:text-base">🛠️</span>
+          <span className="md:hidden">Taller</span>
+          <span className="hidden md:inline">Service Taller</span>
         </button>
         <button
           onClick={() => { setLogType(CheckType.FUEL); setShowLogForm(true); }}
-          className="px-3 py-4 bg-amber-500 text-white rounded-xl font-black text-[10px] uppercase shadow-lg active:scale-95 transition-transform flex flex-col items-center justify-center gap-1"
+          className="px-3 py-4 md:px-6 md:py-4 bg-amber-500 text-white rounded-xl md:rounded-2xl font-black text-[10px] md:text-xs uppercase shadow-lg hover:shadow-xl active:scale-95 transition-all flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2"
         >
-          <span className="text-lg">⛽</span>
+          <span className="text-lg md:text-base">⛽</span>
           <span>Combustible</span>
         </button>
       </div>
@@ -327,7 +361,6 @@ const VehicleDetail: React.FC<VehicleDetailProps> = ({
               </div>
             </div>
           </div>
-          <button onClick={() => { setLogType(CheckType.WEEKLY_SAFETY); setShowLogForm(true); }} className="hidden md:block px-6 md:px-8 py-3 md:py-4 bg-blue-600 rounded-[1.5rem] font-black text-xs uppercase shadow-2xl">Control Personal</button>
         </div>
 
         <div className="flex border-b px-1 sm:px-3 md:px-8 bg-slate-50 overflow-x-auto scrollbar-hide -webkit-overflow-scrolling-touch">
@@ -405,6 +438,19 @@ const VehicleDetail: React.FC<VehicleDetailProps> = ({
                           <span title="Uniforme" className={`text-xs ${log.details.uniformOk ? 'grayscale-0' : 'grayscale opacity-30'}`}>👔</span>
                         </div>
                       </div>
+                    </div>
+
+                    <div className="flex flex-col gap-2 justify-center">
+                      <button
+                        onClick={() => exportVehicleInspectionToPDF(vehicle, log)}
+                        className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg hover:shadow-xl transition-all flex items-center gap-2"
+                        title="Exportar a PDF"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0  002 2z" />
+                        </svg>
+                        <span className="hidden md:inline">PDF</span>
+                      </button>
                     </div>
 
                     {log.details.notes && (
@@ -657,26 +703,29 @@ const VehicleDetail: React.FC<VehicleDetailProps> = ({
                     </div>
                     <div>
                       <label className="text-[10px] font-black text-slate-400 uppercase block mb-2 pointer-events-none">Oblea / Certificado</label>
-                      <label className="w-full flex items-center justify-center p-4 bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors">
-                        <input
-                          type="file"
-                          accept="image/*,application/pdf"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              const reader = new FileReader();
-                              reader.onloadend = () => {
-                                onUpdateVehicle({ ...vehicle, vtvPhoto: reader.result as string });
-                              };
-                              reader.readAsDataURL(file);
-                            }
-                          }}
-                        />
-                        <span className="text-slate-500 font-bold uppercase text-xs flex items-center gap-2">
-                          📷 SUBIR DOCUMENTO (IMG/PDF)
-                        </span>
-                      </label>
+                      {/* Solo ADMIN puede subir documentos */}
+                      {currentUser.role === UserRole.ADMIN && (
+                        <label className="w-full flex items-center justify-center p-4 bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors">
+                          <input
+                            type="file"
+                            accept="image/*,application/pdf"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                  onUpdateVehicle({ ...vehicle, vtvPhoto: reader.result as string });
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                          />
+                          <span className="text-slate-500 font-bold uppercase text-xs flex items-center gap-2">
+                            📷 SUBIR DOCUMENTO (IMG/PDF)
+                          </span>
+                        </label>
+                      )}
                     </div>
                     {vehicle.vtvPhoto && (
                       <div className="mt-4 relative group">
@@ -704,14 +753,17 @@ const VehicleDetail: React.FC<VehicleDetailProps> = ({
                             <span className="text-white font-bold text-xs uppercase">Ver Documento</span>
                           </div>
                         </div>
-                        <button
-                          onClick={() => onUpdateVehicle({ ...vehicle, vtvPhoto: undefined })}
-                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600 transition-colors z-10"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
+                        {/* Solo ADMIN puede eliminar documentos */}
+                        {currentUser.role === UserRole.ADMIN && (
+                          <button
+                            onClick={() => onUpdateVehicle({ ...vehicle, vtvPhoto: undefined })}
+                            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600 transition-colors z-10"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -786,26 +838,29 @@ const VehicleDetail: React.FC<VehicleDetailProps> = ({
                       </div>
                       <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase block mb-2 pointer-events-none">Póliza / Tarjeta</label>
-                        <label className="w-full flex items-center justify-center p-4 bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors">
-                          <input
-                            type="file"
-                            accept="image/*,application/pdf"
-                            className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                const reader = new FileReader();
-                                reader.onloadend = () => {
-                                  onUpdateVehicle({ ...vehicle, insurancePolicy: reader.result as string });
-                                };
-                                reader.readAsDataURL(file);
-                              }
-                            }}
-                          />
-                          <span className="text-slate-500 font-bold uppercase text-xs flex items-center gap-2">
-                            📷 SUBIR DOCUMENTO (IMG/PDF)
-                          </span>
-                        </label>
+                        {/* Solo ADMIN puede subir documentos */}
+                        {currentUser.role === UserRole.ADMIN && (
+                          <label className="w-full flex items-center justify-center p-4 bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors">
+                            <input
+                              type="file"
+                              accept="image/*,application/pdf"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  const reader = new FileReader();
+                                  reader.onloadend = () => {
+                                    onUpdateVehicle({ ...vehicle, insurancePolicy: reader.result as string });
+                                  };
+                                  reader.readAsDataURL(file);
+                                }
+                              }}
+                            />
+                            <span className="text-slate-500 font-bold uppercase text-xs flex items-center gap-2">
+                              📷 SUBIR DOCUMENTO (IMG/PDF)
+                            </span>
+                          </label>
+                        )}
                       </div>
                       {vehicle.insurancePolicy && (
                         <div className="mt-4 relative group">
@@ -833,14 +888,17 @@ const VehicleDetail: React.FC<VehicleDetailProps> = ({
                               <span className="text-white font-bold text-xs uppercase">Ver Documento</span>
                             </div>
                           </div>
-                          <button
-                            onClick={() => onUpdateVehicle({ ...vehicle, insurancePolicy: undefined })}
-                            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600 transition-colors z-10"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          </button>
+                          {/* Solo ADMIN puede eliminar documentos */}
+                          {currentUser.role === UserRole.ADMIN && (
+                            <button
+                              onClick={() => onUpdateVehicle({ ...vehicle, insurancePolicy: undefined })}
+                              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600 transition-colors z-10"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -855,17 +913,17 @@ const VehicleDetail: React.FC<VehicleDetailProps> = ({
               <div className="space-y-6">
                 <h4 className="text-2xl font-black text-slate-900 uppercase">Historial de Taller Mecánico</h4>
                 {logs.filter(l => l.type === CheckType.SERVICE).map(log => (
-                  <div key={log.id} className="p-10 bg-violet-50 border-2 border-violet-100 rounded-[3rem] flex justify-between items-center">
-                    <div className="flex items-center gap-6">
-                      <div className="w-20 h-20 bg-white rounded-3xl flex items-center justify-center text-violet-600 shadow-sm"><ICONS.Settings className="w-10 h-10" /></div>
+                  <div key={log.id} className="p-6 md:p-10 bg-violet-50 border-2 border-violet-100 rounded-[2rem] md:rounded-[3rem] flex flex-col md:flex-row justify-between md:items-center gap-4 md:gap-6">
+                    <div className="flex items-center gap-4 md:gap-6">
+                      <div className="w-16 h-16 md:w-20 md:h-20 bg-white rounded-2xl md:rounded-3xl flex items-center justify-center text-violet-600 shadow-sm shrink-0"><ICONS.Settings className="w-8 h-8 md:w-10 md:h-10" /></div>
                       <div>
-                        <p className="text-2xl font-black text-slate-900 uppercase">Service Completo</p>
-                        <p className="text-sm font-black text-violet-600 uppercase">{log.details.workshopName || 'Taller Oficial'}</p>
-                        <p className="text-xs font-bold text-slate-400 uppercase mt-1">{new Date(log.timestamp).toLocaleDateString()} • {log.mileage.toLocaleString()} KM</p>
+                        <p className="text-lg md:text-2xl font-black text-slate-900 uppercase">Service Completo</p>
+                        <p className="text-xs md:text-sm font-black text-violet-600 uppercase">{log.details.workshopName || 'Taller Oficial'}</p>
+                        <p className="text-[10px] md:text-xs font-bold text-slate-400 uppercase mt-1">{new Date(log.timestamp).toLocaleDateString()} • {log.mileage.toLocaleString()} KM</p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-3xl font-black text-slate-900">${log.details.serviceCost?.toLocaleString()}</p>
+                    <div className="text-left md:text-right border-t md:border-t-0 pt-4 md:pt-0 md:shrink-0">
+                      <p className="text-2xl md:text-3xl font-black text-slate-900">${log.details.serviceCost?.toLocaleString()}</p>
                       <p className="text-[10px] font-black text-slate-400 uppercase">Costo Invertido</p>
                     </div>
                   </div>
@@ -1053,6 +1111,81 @@ const VehicleDetail: React.FC<VehicleDetailProps> = ({
           </div>
         )
       }
+
+      {/* Inventory Tab */}
+      {activeTab === 'inventory' && (
+        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h4 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Inventario de la Unidad</h4>
+              <p className="text-slate-500 font-medium mt-1">Elementos y accesorios a bordo</p>
+            </div>
+
+            {currentUser.role === UserRole.ADMIN && (
+              <div className="flex gap-2 bg-white p-2 rounded-2xl border border-slate-100 shadow-sm">
+                <input
+                  type="text"
+                  placeholder="Nuevo ítem..."
+                  className="bg-transparent px-4 py-2 outline-none text-sm font-bold min-w-[200px]"
+                  value={newItemName}
+                  onChange={e => setNewItemName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleAddInventoryItem()}
+                />
+                <button
+                  onClick={handleAddInventoryItem}
+                  className="bg-slate-900 text-white px-4 py-2 rounded-xl font-black text-xs uppercase hover:bg-slate-800 transition-colors"
+                >
+                  Agregar
+                </button>
+              </div>
+            )}
+          </header>
+
+          <div className="bg-white rounded-[2rem] border border-slate-100 overflow-hidden shadow-sm">
+            {(vehicle.inventory || []).length === 0 ? (
+              <div className="p-12 text-center">
+                <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">📦</div>
+                <h3 className="text-lg font-black text-slate-900 uppercase">Sin inventario</h3>
+                <p className="text-slate-400 font-medium text-sm mt-1">No hay elementos registrados en este vehículo.</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {(vehicle.inventory || []).map(item => (
+                  <div key={item.id} className="p-4 sm:p-6 flex items-center justify-between hover:bg-slate-50 transition-colors group">
+                    <div className="flex items-center gap-4">
+                      {/* El toggle lo puede hacer cualquiera para verificar, o restringimos?
+                            El usuario pidió "CREARLO", asumimos que cualquiera puede checkear que está.
+                            Pero si es "Inventario", el staff debería poder reportar si falta algo.
+                            Dejaré que todos puedan togglear (reportar faltante/presente) pero solo admin agregar/borrar de la lista.
+                         */}
+                      <button
+                        onClick={() => toggleInventory(item.id)}
+                        className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl transition-all ${item.present ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30' : 'bg-slate-100 text-slate-300'}`}
+                      >
+                        {item.present ? '✓' : '✕'}
+                      </button>
+                      <div>
+                        <p className={`font-black uppercase text-sm ${item.present ? 'text-slate-900' : 'text-slate-400 line-through'}`}>{item.name}</p>
+                        <p className="text-[10px] uppercase font-bold text-slate-400">{item.present ? 'A Bordo' : 'Faltante'}</p>
+                      </div>
+                    </div>
+
+                    {currentUser.role === UserRole.ADMIN && (
+                      <button
+                        onClick={() => handleDeleteInventoryItem(item.id)}
+                        className="w-10 h-10 rounded-xl bg-red-50 text-red-500 flex items-center justify-center md:opacity-0 group-hover:opacity-100 transition-all hover:bg-red-500 hover:text-white"
+                        title="Eliminar ítem"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Tires Tab */}
       {activeTab === 'tires' && (
